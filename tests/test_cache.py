@@ -74,3 +74,26 @@ def test_cache_overwrites_existing_key():
     cache.set("/hello", b"New Value")
 
     assert cache.get("/hello") == b"New Value"
+
+def test_cache_stores_expiration_time():
+    cache = Cache(ttl=15)
+
+    cache.set("/hello", b"Hello World")
+
+    entry = cache.storage["/hello"]
+
+    assert "expires_at" in entry
+    assert entry["expires_at"] > time.time()
+
+def test_has_returns_false_after_expiration(monkeypatch):
+    cache = Cache(ttl=10)
+
+    current_time = 1000
+
+    monkeypatch.setattr(time, "time", lambda: current_time)
+
+    cache.set("/hello", b"Hello World")
+
+    monkeypatch.setattr(time, "time", lambda: current_time + 11)
+
+    assert cache.has("/hello") is False
