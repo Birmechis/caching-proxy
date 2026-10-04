@@ -1,5 +1,5 @@
 def parse_http_request(request):
-    request = request.decode()
+    request = request.decode('utf-8')
 
     header_part, _, body = request.partition('\r\n\r\n')
 
@@ -11,10 +11,13 @@ def parse_http_request(request):
     if len(parts) != 3:
         raise ValueError("Invalid HTTP request line")
 
-    method, path,version = parts
+    method,path,version = parts
 
     headers = {}
     for line in lines[1:]:
+
+        if not line.strip():
+            continue
 
         if ':' not in line:
             raise ValueError("Invalid HTTP header")
