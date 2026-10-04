@@ -16,19 +16,23 @@ def test_cache_missing_key():
 
     result = cache.get("/doesnotexist")
 
-    assert result == None
+    assert result is None
 
-def test_cache_expires():
+def test_cache_expires(monkeypatch):
 
-    cache = Cache(ttl=1)
+    cache = Cache(ttl=10)
+
+    current_time = 1000
+
+    monkeypatch.setattr(time, "time", lambda: current_time)
 
     cache.set("/hello", b"Hello World")
 
-    time.sleep(1.1)
+    monkeypatch.setattr(time, "time", lambda: current_time + 11)
 
     result  = cache.get("/hello")
 
-    assert result == None
+    assert result is None
 
 def test_different_query_strings_are_different_keys():
 
@@ -39,3 +43,34 @@ def test_different_query_strings_are_different_keys():
 
     assert cache.get("/products?page=1") == b"page 1"
     assert cache.get("/products?page=2") == b"page 2"
+
+def test_cache_has_key():
+
+    cache = Cache()
+
+    cache.set("/hello", b"Hello World")
+
+    assert cache.has("/hello") is True
+    assert cache.has("/doesnotexist") is False
+
+def test_different_http_methods_have_different_cache_keys():
+
+    cache = Cache()
+
+    get_key = "GET:/products"
+    post_key = "POST:/products"
+
+    cache.set(get_key, b"GET /products")
+    cache.set(post_key, b"POST /products")
+
+    assert cache.get(get_key) == b"GET /products"
+    assert cache.get(post_key) == b"POST /products"
+
+def test_cache_overwrites_existing_key():
+
+    cache = Cache()
+
+    cache.set("/hello", b"Old Value")
+    cache.set("/hello", b"New Value")
+
+    assert cache.get("/hello") == b"New Value"
