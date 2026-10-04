@@ -61,10 +61,26 @@ class ProxyServer:
             client_socket.close()
             return
 
-        parsed_request = parse_http_request(request)
+        try:
+            parsed_request = parse_http_request(request)
+
+        except ValueError:
+            response = (
+                b"HTTP/1.1 400 Bad Request\r\n"
+                b"Content-Length: 11\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"Bad Request"
+            )
+            client_socket.sendall(response)
+            client_socket.close()
+
+            return
 
         method = parsed_request["method"]
         path = parsed_request["path"]
+
+        cache_key = f"{method}:{path}"
 
         print(f"{method} {path}")
 
@@ -72,19 +88,19 @@ class ProxyServer:
             cache_response = self.cache.get(path)
 
             if cache_response is not None:
-                print(f"[CACHE] HIT: {path}")
+                print(f"[CACHE] HIT: {cache_key}")
 
                 client_socket.sendall(cache_response)
                 client_socket.close()
 
                 return
 
-            print(f"[CACHE] MISS: {path}")
+            print(f"[CACHE] MISS: {cache_key}")
 
         response = self.forward_request(request)
 
         if method == "GET":
-            print(f"[CACHE] storing: {path}")
+            print(f"[CACHE] storing: {cache_key}")
 
             self.cache.set(path, response)
 
