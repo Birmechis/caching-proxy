@@ -1,10 +1,14 @@
 import threading
 import time
+from collections import OrderedDict
+
 
 class Cache:
-    def __init__(self, ttl=15):
+    def __init__(self, ttl=15, max_size=100):
+        self.cache = OrderedDict()
         self.storage = {}
         self.ttl = ttl
+        self.max_size = max_size
         self.lock = threading.Lock()
     def get(self,key):
         with self.lock:
@@ -28,6 +32,9 @@ class Cache:
                 "response": value,
                 "expires_at": expires_at
             }
+
+            if len(self.storage) > self.max_size:
+                self.cache.popitem(last=False)
 
             print(
                 f"[CACHE] Stored: {key}"
