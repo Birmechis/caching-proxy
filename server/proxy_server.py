@@ -1,4 +1,5 @@
 import socket
+import threading
 from urllib.parse import urlparse
 
 from server.cache import Cache
@@ -50,8 +51,11 @@ class ProxyServer:
                 f"\nConnection from "
                 f"{client_address}"
             )
-
-            self.handle_client(client_socket)
+            thread = threading.Thread(
+                target=self.handle_client,
+                args=(client_socket,)
+            )
+            thread.start()
 
     def error_response(self, status_code, status_text, body):
         body_bytes = body.encode('utf-8')
