@@ -68,10 +68,47 @@ class ProxyServer:
             f"\r\n"
         ).encode('utf-8') + body_bytes
 
+    def receive_request(self, client_socket):
+
+        request_buffer = b""
+        HEADER_DELIMITER = b"\r\n\r\n"
+
+        while HEADER_DELIMITER not in request_buffer:
+            chunk = client_socket.recv(4096)
+
+            if not chunk:
+                return request_buffer
+
+            request_buffer += chunk
+
+        header_part, body_part = request_buffer.split(HEADER_DELIMITER, 1)
+
+        content_length = 0
+        header_lines = header_part.decode('utf-8', errors='ignore').split('\r\n')
+
+        for line in header_lines:
+            if line.lower().startswith("content-length"):
+                try:
+                    content_length = int(line.split(":", 1)[1].strip())
+                except ValueError:
+                    content_length = 0
+                break
+
+        bytes_needed = content_length - len(body_part)
+
+        while bytes_needed > 0:
+
+            chunk = client_socket.recv(min(4096), bytes_needed)
+            if not chunk:
+                break
+            body_part += chunk
+            bytes_needed -= len(chunk)
+
+        return header_part + HEADER_DELIMITER + body_part
 
     def handle_client(self, client_socket):
 
-        request = client_socket.recv(4096)
+        request = self.receive_request(4096)
 
         if not request:
             client_socket.close()
