@@ -103,7 +103,7 @@ def test_get_cache_hit_does_not_contacts_origin():
         b"Hello"
     )
 
-    proxy.cache.set("/products", cache_response)
+    proxy.cache.set("GET:/products", cache_response)
 
     proxy.forward_request = Mock()
 

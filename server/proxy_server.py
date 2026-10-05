@@ -85,7 +85,7 @@ class ProxyServer:
         print(f"{method} {path}")
 
         if method == "GET":
-            cache_response = self.cache.get(path)
+            cache_response = self.cache.get(cache_key)
 
             if cache_response is not None:
                 print(f"[CACHE] HIT: {cache_key}")
@@ -102,7 +102,7 @@ class ProxyServer:
         if method == "GET":
             print(f"[CACHE] storing: {cache_key}")
 
-            self.cache.set(path, response)
+            self.cache.set(cache_key, response)
 
         client_socket.sendall(response)
 
