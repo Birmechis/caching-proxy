@@ -53,6 +53,18 @@ class ProxyServer:
 
             self.handle_client(client_socket)
 
+    def error_response(self, status_code, status_text, body):
+        body_bytes = body.encode('utf-8')
+
+        return (
+            f"HTTP/1.1 {status_code} {status_text}\r\n"
+            f"Content-Type: text/plain\r\n"
+            f"Content-Length: {len(body_bytes)}\r\n"
+            f"Connection: close\r\n"
+            f"\r\n"
+        ).encode('utf-8') + body_bytes
+
+
     def handle_client(self, client_socket):
 
         request = client_socket.recv(4096)
@@ -97,7 +109,20 @@ class ProxyServer:
 
             print(f"[CACHE] MISS: {cache_key}")
 
-        response = self.forward_request(request)
+        try:
+            response = self.forward_request(request)
+        except socket.timeout:
+            response = self.error_response(
+                504,
+                "Gateway Timeout",
+                "Gateway Timeout"
+            )
+        except (ConnectionRefusedError, TimeoutError, socket.timeout, OSError):
+            response = self.error_response(
+                502,
+                "Bad Gateway",
+                "Bad Gateway"
+            )
 
         if method == "GET":
             print(f"[CACHE] storing: {cache_key}")
