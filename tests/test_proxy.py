@@ -1,3 +1,4 @@
+import socket
 from urllib.request import Request
 
 from server.proxy_server import ProxyServer
@@ -200,3 +201,57 @@ def test_get_requests_with_different_query_strings_use_different_cache_entries()
     proxy.handle_client(second_socket)
 
     assert proxy.forward_request.call_count == 2
+
+def test_proxy_returns_502_when_origin_is_unavailable():
+    proxy = ProxyServer(
+        "127.0.0.1",
+        8000,
+        "http://127.0.0.1:9000"
+    )
+
+    client_socket = Mock()
+
+    request = (
+        b"GET /products HTTP/1.1\r\n"
+        b"Host: localhost\r\n"
+        b"\r\n"
+    )
+
+    client_socket.recv.return_value = request
+
+    proxy.forward_request = Mock(
+        side_effect=ConnectionRefusedError()
+    )
+
+    proxy.handle_client(client_socket)
+
+    response = client_socket.sendall.call_args[0][0]
+
+    assert b"502 Bad Gateway" in response
+
+def test_proxy_returns_504_when_origin_times_out():
+    proxy = ProxyServer(
+        "127.0.0.1",
+        8000,
+        "http://127.0.0.1:9000"
+    )
+
+    client_socket = Mock()
+
+    request = (
+        b"GET /products HTTP/1.1\r\n"
+        b"Host: localhost\r\n"
+        b"\r\n"
+    )
+
+    client_socket.recv.return_value = request
+
+    proxy.forward_request = Mock(
+        side_effect=socket.timeout()
+    )
+
+    proxy.handle_client(client_socket)
+
+    response = client_socket.sendall.call_args[0][0]
+
+    assert b"504 Gateway Timeout" in response
