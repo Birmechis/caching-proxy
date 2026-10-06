@@ -30,22 +30,45 @@ class Cache:
             self.cache.move_to_end(key)
             return response
 
-    def set(self, key, value):
-        with self.lock:
-            expires_at = time.time() + self.ttl
+    def set(self, key, value, headers, status_code):
 
+        headers_lower = {k.lower(): v for k, v in headers.items()}
+        cache_control = headers_lower.get("Cache-Control", "").lower()
+
+        if 'no-store' in cache_control or 'no-cache' in cache_control or 'private' in cache_control:
+            print(f"[CACHE] Skipped due to Cache-Control rules: {key}")
+            return "MISS"
+
+        if status_code != 200:
+            print(f"[CACHE] Skipped non-200 status code ({status_code}): {key}")
+            return "MISS"
+
+        ttl_to_use = self.ttl
+        for directive in cache_control.split(","):
+            directive = directive.strip()
+            if directive.startswith("max-age"):
+                try:
+                    ttl = int(directive.split("=")[1])
+                    ttl_to_use = ttl
+                except (ValueError, IndexError):
+                    pass
+
+        with self.lock:
+            if key in self.cache:
+                del self.cache[key]
+
+            elif len(self.cache) >= self.max_size:
+                oldest_key,_ = self.cache.popitem(last=False)
+                print(f"[CACHE] Evicted oldest entry due to capacity limit: {oldest_key}")
+
+            expires_at = time.time() + ttl_to_use
             self.cache[key] = {
                 "response": value,
                 "expires_at": expires_at
             }
 
-            if len(self.cache) > self.max_size:
-                self.cache.popitem(last=False)
-
-            print(
-                f"[CACHE] Stored: {key}"
-                f"(TTL: {self.ttl}s)"
-            )
+            print(f"[CACHE] Stored: {key} (TTL: {ttl_to_use}s)")
+            return "MISS (CACHED)"
 
     def stats(self):
         total = self.cache_hits + self.cache_misses
