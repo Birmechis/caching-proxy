@@ -1,6 +1,4 @@
 import socket
-from urllib.request import Request
-
 from server.proxy_server import ProxyServer
 from unittest.mock import Mock
 
@@ -106,7 +104,7 @@ def test_get_cache_hit_does_not_contacts_origin():
         b"Hello"
     )
 
-    proxy.cache.set("GET:/products", cache_response)
+    proxy.cache.set("GET:/products", cache_response, {}, 200)
 
     proxy.forward_request = Mock()
 
@@ -192,10 +190,10 @@ def test_get_requests_with_different_query_strings_use_different_cache_entries()
     )
 
     first_socket = Mock()
-    first_socket.recv.return_value = first_response
+    first_socket.recv.return_value = first_request
 
     second_socket = Mock()
-    second_socket.recv.return_value = second_response
+    second_socket.recv.return_value = second_request
 
     proxy.handle_client(first_socket)
     proxy.handle_client(second_socket)
