@@ -1,5 +1,7 @@
 import time
 from server.cache import Cache
+from server.proxy_server import ProxyServer
+from unittest.mock import Mock
 
 def test_cache_set_and_get():
     cache = Cache(ttl=15)
@@ -20,7 +22,7 @@ def test_cache_missing_key():
 
 def test_cache_expires(monkeypatch):
 
-    cache = Cache(ttl=10)
+    cache = Cache(ttl=15)
 
     current_time = 1000
 
@@ -28,7 +30,7 @@ def test_cache_expires(monkeypatch):
 
     cache.set("/hello", b"Hello World", {}, 200)
 
-    monkeypatch.setattr(time, "time", lambda: current_time + 11)
+    monkeypatch.setattr(time, "time", lambda: current_time + 16)
 
     result  = cache.get("/hello")
 
@@ -75,7 +77,7 @@ def test_cache_overwrites_existing_key():
 
     assert cache.get("/hello") == b"New Value"
 
-def test_cache_stores_expiration_time(cache):
+def test_cache_stores_expiration_time():
     cache = Cache(ttl=15)
 
     cache.set("/hello", b"Hello World", {}, 200)
@@ -97,3 +99,58 @@ def test_has_returns_false_after_expiration(monkeypatch):
     monkeypatch.setattr(time, "time", lambda: current_time + 11)
 
     assert cache.has("/hello") is False
+
+
+def test_cache_skips_no_store():
+    cache = Cache()
+
+    result = cache.set(
+        "/private",
+        b"Secret",
+        {"Cache-Control": "no-store"},
+        200
+    )
+
+    assert result == "MISS"
+    assert cache.get("/private") is None
+
+def test_cache_skips_no_cache():
+    cache = Cache()
+
+    result = cache.set(
+        "/products",
+        b"Products",
+        {"Cache-Control": "no-cache"},
+        200
+    )
+
+    assert result == "MISS"
+    assert cache.get("/products") is None
+
+
+
+def test_cache_skips_private_response():
+    cache = Cache()
+
+    result = cache.set(
+        "/account",
+        b"Private data",
+        {"Cache-Control": "private"},
+        200
+    )
+
+    assert result == "MISS"
+    assert cache.get("/account") is None
+
+def test_cache_uses_max_age(monkeypatch):
+    cache = Cache(ttl=15)
+
+    current_time = 1000
+
+    monkeypatch.setattr(time, "time", lambda: current_time)
+
+    cache.set("/Products", b"Products", {"Cache-Control": "max-age=60"}, 200)
+
+    entry = cache.cache["/Products"]
+
+    assert entry["expires_at"] == 1060
