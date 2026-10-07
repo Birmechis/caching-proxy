@@ -30,10 +30,10 @@ class Cache:
             self.cache.move_to_end(key)
             return response
 
-    def set(self, key, value, headers, status_code):
+    def set(self, key, value, headers, status_code, etag=None):
 
         headers_lower = {k.lower(): v for k, v in headers.items()}
-        cache_control = headers_lower.get("Cache-Control", "").lower()
+        cache_control = headers_lower.get("cache-control", "").lower()
 
         if 'no-store' in cache_control or 'no-cache' in cache_control or 'private' in cache_control:
             print(f"[CACHE] Skipped due to Cache-Control rules: {key}")
@@ -64,11 +64,25 @@ class Cache:
             expires_at = time.time() + ttl_to_use
             self.cache[key] = {
                 "response": value,
-                "expires_at": expires_at
+                "expires_at": expires_at,
+                "etag": etag
             }
 
             print(f"[CACHE] Stored: {key} (TTL: {ttl_to_use}s)")
             return "MISS (CACHED)"
+
+    def get_etag(self, key):
+        with self.lock:
+            if key not in self.cache:
+                return None
+
+            entry = self.cache[key]
+
+            if time.time() >= entry["expires_at"]:
+                del self.cache[key]
+                return None
+
+            return entry["etag"]
 
     def stats(self):
         total = self.cache_hits + self.cache_misses

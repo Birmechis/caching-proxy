@@ -1,4 +1,5 @@
 import socket
+import hashlib
 
 HOST = '127.0.0.1'
 PORT = 9000
@@ -22,10 +23,16 @@ while True:
 
     body_bytes = body.encode("utf-8")
 
+    etag = hashlib.sha256(
+        body_bytes
+    ).hexdigest()
+
     response_headers = (
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/plain\r\n"
         f"Content-Length: {len(body_bytes)}\r\n"
+        f"ETag: {etag}\r\n"
+        "Cache-Control: max-age=60\r\n"
         "Connection: close\r\n"
         "\r\n"
     )
