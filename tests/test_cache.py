@@ -4,7 +4,7 @@ from server.cache import Cache
 def test_cache_set_and_get():
     cache = Cache(ttl=15)
 
-    cache.set("/hello", b"Hello World")
+    cache.set("/hello", b"Hello World", {}, 200)
 
     result = cache.get("/hello")
 
@@ -26,7 +26,7 @@ def test_cache_expires(monkeypatch):
 
     monkeypatch.setattr(time, "time", lambda: current_time)
 
-    cache.set("/hello", b"Hello World")
+    cache.set("/hello", b"Hello World", {}, 200)
 
     monkeypatch.setattr(time, "time", lambda: current_time + 11)
 
@@ -38,8 +38,8 @@ def test_different_query_strings_are_different_keys():
 
     cache = Cache(ttl=15)
 
-    cache.set("/products?page=1", b"page 1")
-    cache.set("/products?page=2", b"page 2")
+    cache.set("/products?page=1", b"page 1", {}, 200)
+    cache.set("/products?page=2", b"page 2", {}, 200)
 
     assert cache.get("/products?page=1") == b"page 1"
     assert cache.get("/products?page=2") == b"page 2"
@@ -48,7 +48,7 @@ def test_cache_has_key():
 
     cache = Cache()
 
-    cache.set("/hello", b"Hello World")
+    cache.set("/hello", b"Hello World", {}, 200)
 
     assert cache.has("/hello") is True
     assert cache.has("/doesnotexist") is False
@@ -60,8 +60,8 @@ def test_different_http_methods_have_different_cache_keys():
     get_key = "GET:/products"
     post_key = "POST:/products"
 
-    cache.set(get_key, b"GET /products")
-    cache.set(post_key, b"POST /products")
+    cache.set(get_key, b"GET /products", {}, 200)
+    cache.set(post_key, b"POST /products", {}, 200)
 
     assert cache.get(get_key) == b"GET /products"
     assert cache.get(post_key) == b"POST /products"
@@ -70,17 +70,17 @@ def test_cache_overwrites_existing_key():
 
     cache = Cache()
 
-    cache.set("/hello", b"Old Value")
-    cache.set("/hello", b"New Value")
+    cache.set("/hello", b"Old Value", {}, 200)
+    cache.set("/hello", b"New Value", {}, 200)
 
     assert cache.get("/hello") == b"New Value"
 
-def test_cache_stores_expiration_time():
+def test_cache_stores_expiration_time(cache):
     cache = Cache(ttl=15)
 
-    cache.set("/hello", b"Hello World")
+    cache.set("/hello", b"Hello World", {}, 200)
 
-    entry = cache.storage["/hello"]
+    entry = cache.cache["/hello"]
 
     assert "expires_at" in entry
     assert entry["expires_at"] > time.time()
@@ -92,7 +92,7 @@ def test_has_returns_false_after_expiration(monkeypatch):
 
     monkeypatch.setattr(time, "time", lambda: current_time)
 
-    cache.set("/hello", b"Hello World")
+    cache.set("/hello", b"Hello World", {}, 200)
 
     monkeypatch.setattr(time, "time", lambda: current_time + 11)
 
