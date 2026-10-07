@@ -37,6 +37,22 @@ def parse_http_request(request):
         'body': body
     }
 
+def parse_http_response(response):
+    header_part, body = response.split(b"\r\n\r\n", 1)
+
+    lines = header_part.decode("utf-8").split("\r\n")
+
+    status_line = lines[0]
+    status_code = int(status_line.split(" ")[1])
+
+    headers = {}
+
+    for line in lines[1:]:
+        name, value = line.split(":", 1)
+        headers[name] = value.strip()
+
+    return headers, status_code
+
 def http_response(body, status_code=200, status_text="ok"):
     body = body.encode('utf-8')
 
