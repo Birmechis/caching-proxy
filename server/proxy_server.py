@@ -1,9 +1,8 @@
 import socket
 import threading
 from urllib.parse import urlparse
-
 from server.cache import Cache
-from server.my_server import parse_http_request
+from server.my_server import parse_http_request, parse_http_response
 
 
 class ProxyServer:
@@ -98,7 +97,7 @@ class ProxyServer:
 
         while bytes_needed > 0:
 
-            chunk = client_socket.recv(min(4096), bytes_needed)
+            chunk = client_socket.recv(min(4096, bytes_needed))
             if not chunk:
                 break
             body_part += chunk
@@ -108,7 +107,7 @@ class ProxyServer:
 
     def handle_client(self, client_socket):
 
-        request = self.receive_request(4096)
+        request = self.receive_request(client_socket)
 
         if not request:
             client_socket.close()
@@ -168,7 +167,14 @@ class ProxyServer:
         if method == "GET":
             print(f"[CACHE] storing: {cache_key}")
 
-            self.cache.set(cache_key, response)
+            headers, status_code = parse_http_response(response)
+
+            self.cache.set(
+                cache_key,
+                response,
+                headers,
+                status_code
+            )
 
         client_socket.sendall(response)
 
