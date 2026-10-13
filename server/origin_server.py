@@ -23,7 +23,7 @@ while True:
 
     body_bytes = body.encode("utf-8")
 
-    etag = hashlib.sha256(
+    etag = hashlib.md5(
         body_bytes
     ).hexdigest()
 
