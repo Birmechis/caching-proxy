@@ -253,3 +253,108 @@ def test_proxy_returns_504_when_origin_times_out():
     response = client_socket.sendall.call_args[0][0]
 
     assert b"504 Gateway Timeout" in response
+
+def test_stale_etag_cache_sends_conditional_request():
+    proxy = ProxyServer(
+        "127.0.0.1",
+        8000,
+        "http://127.0.0.1:9000"
+    )
+
+    cache_response = (
+        b"HTTP/1.1 200 OK\r\n"
+        b"Content-Type: test/plain\r\n"
+        b'Etag: "hello-v1"\r\n'
+        b"Content-Length: 5\r\n"
+        b'Connection: close\r\n'
+        b"\r\n"
+        b"Hello"
+    )
+
+    proxy.cache.set(
+        "GET:/products",
+        cache_response,
+        {"Etag": '"hello-v1"'},
+        200,
+    )
+
+    proxy.cache.cache["GET:/products"]["expires_at"] = 0
+
+    client_socket = Mock()
+
+    request = (
+        b"GET /products HTTP/1.1\r\n"
+        b"Host: localhost\r\n"
+        b"\r\n"
+    )
+
+    client_socket.recv.return_value = request
+
+    proxy.forward_request = Mock(
+        return_value=(
+            b"HTTP/1.1 304 Not Modified\r\n"
+            b'Etag: "hello-v1"\r\n'
+            b"Connection: close\r\n"
+            b"\r\n"
+        )
+    )
+
+    proxy.handle_client(client_socket)
+
+    conditional_request = proxy.forward_request.call_args[0][0]
+
+    assert b'If-None-Match: "hello-v1"' in conditional_request
+
+    client_socket.sendall.assert_called_once_with(cache_response)
+
+def test_etag_revalidation_updates_changed_response():
+    proxy = ProxyServer(
+        "127.0.0.1",
+        8000,
+        "http://127.0.0.1:9000",
+    )
+
+    old_response = (
+        b'HTTP/1.1 200 OK\r\n'
+        b'ETag: "v1"\r\n'
+        b'Content-Length: 3\r\n'
+        b'Connection: close\r\n'
+        b'\r\n'
+        b'Old'
+    )
+
+    new_response = (
+        b'HTTP/1.1 200 OK\r\n'
+        b'ETag: "v2"\r\n'
+        b'Content-Length: 3\r\n'
+        b'Connection: close\r\n'
+        b'\r\n'
+        b'New'
+    )
+
+    proxy.cache.set(
+        "GET:/products",
+        old_response,
+        {"ETag": '"v1"'},
+        200,
+    )
+
+    proxy.cache.cache["GET:/products"]["expires_at"] = 0
+
+    client_socket = Mock()
+    client_socket.recv.return_value = (
+        b"GET /products HTTP/1.1\r\n"
+        b"Host: localhost\r\n"
+        b"\r\n"
+    )
+
+    proxy.forward_request = Mock(return_value=new_response)
+
+    proxy.handle_client(client_socket)
+
+    client_socket.sendall.assert_called_once_with(new_response)
+
+    entry = proxy.cache.cache["GET:/products"]
+
+    assert entry["response"] == new_response
+    assert entry["etag"] == '"v2"'
