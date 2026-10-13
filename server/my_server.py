@@ -38,20 +38,37 @@ def parse_http_request(request):
     }
 
 def parse_http_response(response):
-    header_part, body = response.split(b"\r\n\r\n", 1)
+    header_part, separator, body = response.partition(b"\r\n\r\n")
 
-    lines = header_part.decode("utf-8").split("\r\n")
+    if not separator:
+        raise ValueError("Invalid HTTP response")
 
-    status_line = lines[0]
-    status_code = int(status_line.split(" ")[1])
+    lines = header_part.decode("latin-1").split("\r\n")
+
+    status_line = lines[0].split(" ", 2)
+
+    if len(status_line) < 2:
+        raise ValueError("Invalid HTTP status line")
+
+    try:
+        status_code = int(status_line[1])
+    except ValueError:
+        raise ValueError("Invalid HTTP status code")
 
     headers = {}
 
     for line in lines[1:]:
-        name, value = line.split(":", 1)
-        headers[name] = value.strip()
+        if ":" not in line:
+            raise ValueError("Invalid HTTP response header")
 
-    return headers, status_code
+        key, value = line.split(":", 1)
+        headers[key.strip()] = value.strip()
+
+    return {
+        "status_code": status_code,
+        "headers": headers,
+        "body": body
+    }
 
 def http_response(body, status_code=200, status_text="ok"):
     body = body.encode('utf-8')
