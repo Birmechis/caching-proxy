@@ -1,9 +1,14 @@
+import hashlib
 import socket
 import threading
 from urllib.parse import urlparse
 from server.cache import Cache
 from server.my_server import parse_http_request, parse_http_response
 
+
+def extract_etag(data):
+
+    return f'"{hashlib.sha256(data).hexdigest()}"'
 
 class ProxyServer:
 
@@ -105,80 +110,146 @@ class ProxyServer:
 
         return header_part + HEADER_DELIMITER + body_part
 
+    def add_if_none_match(self, request, etag):
+        header_part, separator, body = request.partition(b"\r\n\r\n")
+
+        if not separator:
+            return request
+
+        lines = header_part.split(b"\r\n")
+
+        # Remove any existing If-None-Match header.
+        lines = [
+            line
+            for line in lines
+            if not line.lower().startswith(b"if-none-match:")
+        ]
+
+        lines.append(
+            b"If-None-Match: " + etag.encode("latin-1")
+        )
+
+        return b"\r\n".join(lines) + b"\r\n\r\n" + body
+
     def handle_client(self, client_socket):
-
-        request = self.receive_request(client_socket)
-
-        if not request:
-            client_socket.close()
-            return
-
         try:
-            parsed_request = parse_http_request(request)
+            request = client_socket.recv(4096)
 
-        except ValueError:
-            response = (
-                b"HTTP/1.1 400 Bad Request\r\n"
-                b"Content-Length: 11\r\n"
-                b"Connection: close\r\n"
-                b"\r\n"
-                b"Bad Request"
-            )
-            client_socket.sendall(response)
-            client_socket.close()
-
-            return
-
-        method = parsed_request["method"]
-        path = parsed_request["path"]
-
-        cache_key = f"{method}:{path}"
-
-        print(f"{method} {path}")
-
-        if method == "GET":
-            cache_response = self.cache.get(cache_key)
-
-            if cache_response is not None:
-                print(f"[CACHE] HIT: {cache_key}")
-
-                client_socket.sendall(cache_response)
-                client_socket.close()
-
+            if not request:
                 return
 
+            try:
+                parsed_request = parse_http_request(request)
+            except (ValueError, UnicodeDecodeError):
+                response = (
+                    b"HTTP/1.1 400 Bad Request\r\n"
+                    b"Content-Length: 11\r\n"
+                    b"Connection: close\r\n"
+                    b"\r\n"
+                    b"Bad Request"
+                )
+                client_socket.sendall(response)
+                return
+
+            method = parsed_request["method"]
+            path = parsed_request["path"]
+            cache_key = f"{method}:{path}"
+
+            print(f"{method} {path}")
+
+            # Only GET requests use this cache.
+            if method != "GET":
+                response = self.forward_request(request)
+                client_socket.sendall(response)
+                return
+
+            entry = self.cache.get_entry(cache_key)
+
+            # Fresh cache entry: no origin request is necessary.
+            if entry is not None and not entry["stale"]:
+                print(f"[CACHE] HIT: {cache_key}")
+                client_socket.sendall(entry["response"])
+                return
+
+            # Stale entry with an ETag: ask the origin if it changed.
+            if entry is not None and entry["etag"]:
+                print(f"[CACHE] REVALIDATING: {cache_key}")
+
+                conditional_request = self.add_if_none_match(
+                    request,
+                    entry["etag"],
+                )
+
+                response = self.forward_request(conditional_request)
+
+                try:
+                    parsed_response = parse_http_response(response)
+                except ValueError:
+                    client_socket.sendall(response)
+                    return
+
+                status_code = parsed_response["status_code"]
+                headers = parsed_response["headers"]
+
+                if status_code == 304:
+                    print(f"[CACHE] REVALIDATED: {cache_key}")
+
+                    self.cache.refresh(cache_key, headers)
+
+                    # Send the original cached 200 response, not the 304.
+                    client_socket.sendall(entry["response"])
+                    return
+
+                if status_code == 200:
+                    print(f"[CACHE] UPDATED: {cache_key}")
+
+                    self.cache.set(
+                        cache_key,
+                        response,
+                        headers,
+                        status_code,
+                    )
+
+                client_socket.sendall(response)
+                return
+
+            # Cache miss: retrieve the resource from the origin.
             print(f"[CACHE] MISS: {cache_key}")
 
-        try:
-            response = self.forward_request(request)
-        except socket.timeout:
-            response = self.error_response(
-                504,
-                "Gateway Timeout",
-                "Gateway Timeout"
-            )
-        except (ConnectionRefusedError, TimeoutError, socket.timeout, OSError):
-            response = self.error_response(
-                502,
-                "Bad Gateway",
-                "Bad Gateway"
-            )
+            try:
+                response = self.forward_request(request)
 
-        if method == "GET":
-            print(f"[CACHE] storing: {cache_key}")
+            except socket.timeout:
+                response = self.error_response(
+                    504,
+                    "Gateway Timeout",
+                    "Gateway Timeout",
+                )
+            except OSError:
+                response = self.error_response(
+                    502,
+                    "Bad Gateway",
+                    "Bad Gateway"
+                )
 
-            headers, status_code = parse_http_response(response)
+            try:
+                parsed_response = parse_http_response(response)
+            except ValueError:
+                # Forward the response, but do not cache an unparseable response.
+                client_socket.sendall(response)
+                return
 
             self.cache.set(
                 cache_key,
                 response,
-                headers,
-                status_code
+                parsed_response["headers"],
+                parsed_response["status_code"],
             )
 
-        client_socket.sendall(response)
+            client_socket.sendall(response)
 
-        client_socket.close()
+        finally:
+            client_socket.close()
 
     def forward_request(self, request):
 
