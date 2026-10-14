@@ -1,12 +1,14 @@
 import socket
+import sqlite3
 from server.proxy_server import ProxyServer
 from unittest.mock import Mock
 
-def test_proxy_returns_400_for_invalid_request_line():
+def test_proxy_returns_400_for_invalid_request_line(tmp_path):
     proxy = ProxyServer(
         "127.0.0.1",
         8000,
-        "http://127.0.0.1:9000"
+        "http://127.0.0.1:9000",
+        cache_db_path=tmp_path / "invalid_request_line.db",
     )
 
     client_socket = Mock()
@@ -18,11 +20,12 @@ def test_proxy_returns_400_for_invalid_request_line():
     send_response = client_socket.sendall.call_args[0][0]
     assert b"400 Bad Request" in send_response
 
-def test_proxy_forwards_valid_request():
+def test_proxy_forwards_valid_request(tmp_path):
     proxy = ProxyServer(
         "127.0.0.1",
         8000,
-        "http://127.0.0.1:9000"
+        "http://127.0.0.1:9000",
+        cache_db_path=tmp_path / "valid_request.db",
     )
 
     client_socket = Mock()
@@ -50,11 +53,12 @@ def test_proxy_forwards_valid_request():
 
     proxy.forward_request.assert_called_once_with(request)
 
-def test_proxy_returns_origin_response():
+def test_proxy_returns_origin_response(tmp_path):
     proxy = ProxyServer(
         "127.0.0.1",
         8000,
-        "http://127.0.0.1:9000"
+        "http://127.0.0.1:9000",
+        cache_db_path=tmp_path / "origin_response.db",
     )
 
     client_socket = Mock()
@@ -82,11 +86,12 @@ def test_proxy_returns_origin_response():
 
     client_socket.sendall.assert_called_with(origin_response)
 
-def test_get_cache_hit_does_not_contacts_origin():
+def test_get_cache_hit_does_not_contacts_origin(tmp_path):
     proxy = ProxyServer(
         "127.0.0.1",
         8000,
-        "http://127.0.0.1:9000"
+        "http://127.0.0.1:9000",
+        cache_db_path = tmp_path / "proxy_cache_db"
     )
 
     client_socket = Mock()
@@ -104,7 +109,7 @@ def test_get_cache_hit_does_not_contacts_origin():
         b"Hello"
     )
 
-    proxy.cache.set("GET:/products", cache_response, {}, 200)
+    proxy.cache.set("GET:/products", cache_response)
 
     proxy.forward_request = Mock()
 
@@ -116,11 +121,12 @@ def test_get_cache_hit_does_not_contacts_origin():
     client_socket.sendall.assert_called_once_with(cache_response)
 
 
-def test_post_request_is_not_cached():
+def test_post_request_is_not_cached(tmp_path):
     proxy = ProxyServer(
         "127.0.0.1",
         8000,
-        "http://127.0.0.1:9000"
+        "http://127.0.0.1:9000",
+        cache_db_path=tmp_path / "post_not_cached.db"
     )
 
     client_socket = Mock()
@@ -152,11 +158,12 @@ def test_post_request_is_not_cached():
 
     assert proxy.cache.get("/products") is None
 
-def test_get_requests_with_different_query_strings_use_different_cache_entries():
+def test_get_requests_with_different_query_strings_use_different_cache_entries(tmp_path):
     proxy = ProxyServer(
         "127.0.0.1",
         8000,
-        "http://127.0.0.1:9000"
+        "http://127.0.0.1:9000",
+        cache_db_path=tmp_path / "different_cache_entry.db"
     )
 
     first_request = (
@@ -200,11 +207,12 @@ def test_get_requests_with_different_query_strings_use_different_cache_entries()
 
     assert proxy.forward_request.call_count == 2
 
-def test_proxy_returns_502_when_origin_is_unavailable():
+def test_proxy_returns_502_when_origin_is_unavailable(tmp_path):
     proxy = ProxyServer(
         "127.0.0.1",
         8000,
-        "http://127.0.0.1:9000"
+        "http://127.0.0.1:9000",
+        cache_db_path=tmp_path / "proxy_502.db",
     )
 
     client_socket = Mock()
@@ -227,11 +235,12 @@ def test_proxy_returns_502_when_origin_is_unavailable():
 
     assert b"502 Bad Gateway" in response
 
-def test_proxy_returns_504_when_origin_times_out():
+def test_proxy_returns_504_when_origin_times_out(tmp_path):
     proxy = ProxyServer(
         "127.0.0.1",
         8000,
-        "http://127.0.0.1:9000"
+        "http://127.0.0.1:9000",
+        cache_db_path=tmp_path / "proxy_504.db",
     )
 
     client_socket = Mock()
@@ -254,11 +263,12 @@ def test_proxy_returns_504_when_origin_times_out():
 
     assert b"504 Gateway Timeout" in response
 
-def test_stale_etag_cache_sends_conditional_request():
+def test_stale_etag_cache_sends_conditional_request(tmp_path):
     proxy = ProxyServer(
         "127.0.0.1",
         8000,
-        "http://127.0.0.1:9000"
+        "http://127.0.0.1:9000",
+        cache_db_path=tmp_path / "stale_etag.db",
     )
 
     cache_response = (
@@ -278,7 +288,15 @@ def test_stale_etag_cache_sends_conditional_request():
         200,
     )
 
-    proxy.cache.cache["GET:/products"]["expires_at"] = 0
+    with sqlite3.connect(proxy.cache.db_path) as conn:
+        conn.execute(
+            """
+            UPDATE http_cache
+            SET expires_at = 0
+            WHERE cache_key = ?
+            """,
+            ("GET:/products",),
+        )
 
     client_socket = Mock()
 
@@ -307,11 +325,12 @@ def test_stale_etag_cache_sends_conditional_request():
 
     client_socket.sendall.assert_called_once_with(cache_response)
 
-def test_etag_revalidation_updates_changed_response():
+def test_etag_revalidation_updates_changed_response(tmp_path):
     proxy = ProxyServer(
         "127.0.0.1",
         8000,
         "http://127.0.0.1:9000",
+        cache_db_path=tmp_path / "etag_update.db",
     )
 
     old_response = (
@@ -339,7 +358,15 @@ def test_etag_revalidation_updates_changed_response():
         200,
     )
 
-    proxy.cache.cache["GET:/products"]["expires_at"] = 0
+    with sqlite3.connect(proxy.cache.db_path) as conn:
+        conn.execute(
+            """
+            UPDATE http_cache
+            SET expires_at = 0
+            WHERE cache_key = ?
+            """,
+            ("GET:/products",),
+        )
 
     client_socket = Mock()
     client_socket.recv.return_value = (
@@ -354,7 +381,16 @@ def test_etag_revalidation_updates_changed_response():
 
     client_socket.sendall.assert_called_once_with(new_response)
 
-    entry = proxy.cache.cache["GET:/products"]
+    with sqlite3.connect(proxy.cache.db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT response, etag
+            FROM http_cache
+            WHERE cache_key = ?
+            """,
+            ("GET:/products",),
+        ).fetchone()
 
-    assert entry["response"] == new_response
-    assert entry["etag"] == '"v2"'
+    assert row is not None
+    assert row[0] == new_response
+    assert row[1] == '"v2"'
