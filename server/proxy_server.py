@@ -12,12 +12,12 @@ def extract_etag(data):
 
 class ProxyServer:
 
-    def __init__(self, host, port, origin):
+    def __init__(self, host, port, origin, cache_db_path="cache.db"):
         self.host = host
         self.port = port
         self.origin = origin
 
-        self.cache = Cache()
+        self.cache = Cache(db_path=cache_db_path)
 
     def start(self):
 
